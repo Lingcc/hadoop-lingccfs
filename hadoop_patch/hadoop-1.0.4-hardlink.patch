@@ -1,0 +1,345 @@
+diff --git a/src/core/org/apache/hadoop/fs/RawLocalFileSystem.java b/src/core/org/apache/hadoop/fs/RawLocalFileSystem.java
+index 48f888c..b45a343 100644
+--- a/src/core/org/apache/hadoop/fs/RawLocalFileSystem.java
++++ b/src/core/org/apache/hadoop/fs/RawLocalFileSystem.java
+@@ -72,6 +72,7 @@ public class RawLocalFileSystem extends FileSystem {
+     }
+     
+     public int read() throws IOException {
++      LOG.debug("lingkun:Tracking File InputStream, read file. Line 83");
+       int result = super.read();
+       if (result != -1) {
+         statistics.incrementBytesRead(1);
+@@ -81,6 +82,7 @@ public class RawLocalFileSystem extends FileSystem {
+     
+     public int read(byte[] data) throws IOException {
+       int result = super.read(data);
++      LOG.debug("lingkun: Tracking File InputStream, read file. Line 93");
+       if (result != -1) {
+         statistics.incrementBytesRead(result);
+       }
+@@ -88,6 +90,8 @@ public class RawLocalFileSystem extends FileSystem {
+     }
+     
+     public int read(byte[] data, int offset, int length) throws IOException {
++      LOG.debug("lingkun: Tracking File InputStream, read file. offset="+offset
++    		  + ",length="+length);
+       int result = super.read(data, offset, length);
+       if (result != -1) {
+         statistics.incrementBytesRead(result);
+@@ -104,10 +108,12 @@ public class RawLocalFileSystem extends FileSystem {
+     private long position;
+ 
+     public LocalFSFileInputStream(Path f) throws IOException {
++      LOG.debug("lingkun: init LocalFSFileInputStream. Path="+f);
+       this.fis = new TrackingFileInputStream(pathToFile(f));
+     }
+     
+     public void seek(long pos) throws IOException {
++      LOG.debug("lingkun: LocalFSFileInputStream seek. pos="+pos);
+       fis.getChannel().position(pos);
+       this.position = pos;
+     }
+@@ -128,6 +134,8 @@ public class RawLocalFileSystem extends FileSystem {
+     public boolean markSupport() { return false; }
+     
+     public int read() throws IOException {
++      LOG.debug("lingkun: LocalFSFileInputStream read. line 145");
++
+       try {
+         int value = fis.read();
+         if (value >= 0) {
+@@ -140,6 +148,7 @@ public class RawLocalFileSystem extends FileSystem {
+     }
+     
+     public int read(byte[] b, int off, int len) throws IOException {
++      LOG.debug("lingkun: LocalFSFileInputStream read. off="+off + ", len="+len);
+       try {
+         int value = fis.read(b, off, len);
+         if (value > 0) {
+@@ -153,6 +162,9 @@ public class RawLocalFileSystem extends FileSystem {
+     
+     public int read(long position, byte[] b, int off, int len)
+       throws IOException {
++      LOG.debug("lingkun: LocalFSFileInputStream read. position=" + position 
++    		  +", off="+off + ", len="+len);
++
+       ByteBuffer bb = ByteBuffer.wrap(b, off, len);
+       try {
+         return fis.getChannel().read(bb, position);
+@@ -163,6 +175,8 @@ public class RawLocalFileSystem extends FileSystem {
+     
+     public long skip(long n) throws IOException {
+       long value = fis.skip(n);
++      LOG.debug("lingkun: LocalFSFileInputStream skip. value=" + value); 
++
+       if (value > 0) {
+         this.position += value;
+       }
+@@ -171,6 +185,8 @@ public class RawLocalFileSystem extends FileSystem {
+   }
+   
+   public FSDataInputStream open(Path f, int bufferSize) throws IOException {
++    LOG.debug("lingkun: LocalFS open. path=" + f); 
++
+     if (!exists(f)) {
+       throw new FileNotFoundException(f.toString());
+     }
+@@ -185,6 +201,8 @@ public class RawLocalFileSystem extends FileSystem {
+     FileOutputStream fos;
+     
+     private LocalFSFileOutputStream(Path f, boolean append) throws IOException {
++      LOG.debug("lingkun: init LocalFSFileOutputStream. Path="+f);
++
+       this.fos = new FileOutputStream(pathToFile(f), append);
+     }
+     
+@@ -194,6 +212,8 @@ public class RawLocalFileSystem extends FileSystem {
+     public void close() throws IOException { fos.close(); }
+     public void flush() throws IOException { fos.flush(); }
+     public void write(byte[] b, int off, int len) throws IOException {
++        LOG.debug("lingkun: LocalFSFileOutputStream write. off="+off +",len="+len);
++
+       try {
+         fos.write(b, off, len);
+       } catch (IOException e) {                // unexpected exception
+@@ -202,6 +222,8 @@ public class RawLocalFileSystem extends FileSystem {
+     }
+     
+     public void write(int b) throws IOException {
++        LOG.debug("lingkun: LocalFSFileOutputStream write. b="+b);
++
+       try {
+         fos.write(b);
+       } catch (IOException e) {              // unexpected exception
+@@ -218,6 +240,7 @@ public class RawLocalFileSystem extends FileSystem {
+   /** {@inheritDoc} */
+   public FSDataOutputStream append(Path f, int bufferSize,
+       Progressable progress) throws IOException {
++	  LOG.debug("lingkun: LocalFSFileOutputStream append. Path="+f);
+     if (!exists(f)) {
+       throw new FileNotFoundException("File " + f + " not found.");
+     }
+@@ -240,6 +263,8 @@ public class RawLocalFileSystem extends FileSystem {
+       boolean createParent, int bufferSize,
+       short replication, long blockSize, Progressable progress)
+     throws IOException {
++	    LOG.debug("lingkun: RawLocalFileSystem create local file: "+f);
++
+     if (exists(f) && !overwrite) {
+       throw new IOException("File already exists:"+f);
+     }
+@@ -293,6 +318,7 @@ public class RawLocalFileSystem extends FileSystem {
+   }
+   
+   public boolean delete(Path p, boolean recursive) throws IOException {
++	  LOG.debug("lingkun: delete file path="+p);
+     File f = pathToFile(p);
+     if (f.isFile()) {
+       return f.delete();
+@@ -304,6 +330,7 @@ public class RawLocalFileSystem extends FileSystem {
+   }
+  
+   public FileStatus[] listStatus(Path f) throws IOException {
++	  LOG.debug("lingkun: listStatus Path="+f);
+     File localf = pathToFile(f);
+     FileStatus[] results;
+ 
+@@ -331,6 +358,7 @@ public class RawLocalFileSystem extends FileSystem {
+    * treat existence as an error.
+    */
+   public boolean mkdirs(Path f) throws IOException {
++	  LOG.debug("lingkun: mkdir path="+f);
+     Path parent = f.getParent();
+     File p2f = pathToFile(f);
+     return (parent == null || mkdirs(parent)) &&
+@@ -373,6 +401,8 @@ public class RawLocalFileSystem extends FileSystem {
+   // We can write output directly to the final location
+   public Path startLocalOutput(Path fsOutputFile, Path tmpLocalFile)
+     throws IOException {
++	 LOG.debug("lingkun: startLocalOutput. fsOutputFile="+fsOutputFile 
++			 +", tmpLocalFile=" + tmpLocalFile);
+     return fsOutputFile;
+   }
+   
+diff --git a/src/mapred/org/apache/hadoop/mapred/ReduceTask.java b/src/mapred/org/apache/hadoop/mapred/ReduceTask.java
+index 980b988..b881111 100644
+--- a/src/mapred/org/apache/hadoop/mapred/ReduceTask.java
++++ b/src/mapred/org/apache/hadoop/mapred/ReduceTask.java
+@@ -1390,6 +1390,7 @@ class ReduceTask extends Task {
+         // Copy the map output to a temp file whose name is unique to this attempt 
+         Path tmpMapOutput = new Path(filename+"-"+id);
+         
++        LOG.info("lingkun: Copy output. Dest="+tmpMapOutput + ", src=");
+         // Copy the map output
+         MapOutput mapOutput = getMapOutput(loc, tmpMapOutput,
+                                            reduceId.getTaskID().getId());
+@@ -1525,6 +1526,8 @@ class ReduceTask extends Task {
+               ", decompressed len: " + decompressedLength);
+         }
+ 
++        LOG.debug("lingkun: data from Map:"+mapId+", to Reduce:"+forReduce 
++        		+", compressed len=" + compressedLength + ", filename=" + filename);
+         //We will put a file in memory if it meets certain criteria:
+         //1. The size of the (decompressed) file should be less than 25% of 
+         //    the total inmem fs
+@@ -1533,9 +1536,29 @@ class ReduceTask extends Task {
+         // Check if this map-output can be saved in-memory
+         boolean shuffleInMemory = ramManager.canFitInMemory(decompressedLength);
+         
++        //lingkun,put all file in disk for lingccfs
++        if(conf.get("fs.lingccfs.reducetask.shuffleinmemory").startsWith("false")
++        		&& conf.get("fs.default.name").startsWith("lingccfs:")) {
++        	LOG.debug("lingkun: lingccfs+ shuffleinmemory set to false, make all " 
++        			+ " mapout copied from mappers an actual file, not in memory");
++        	shuffleInMemory = false;
++        }
++
+         // Shuffle
+         MapOutput mapOutput = null;
+-        if (shuffleInMemory) {
++        
++        boolean shuffleLink = conf.getBoolean("mapreduce.shuffle.link", false);
++        
++        if(shuffleLink) {
++        	if(LOG.isDebugEnabled()) {
++        		LOG.debug("Shuffling " + decompressedLength + "byres ("
++        				+ compressedLength + " raw bytes) "
++        				+ "to Link from " + mapOutputLoc.getTaskAttemptId());
++        		
++        	}
++        	mapOutput = shuffleToLink(mapOutputLoc, input, filename,
++        			(int) decompressedLength);
++        } else if (shuffleInMemory) {
+           if (LOG.isDebugEnabled()) {
+             LOG.debug("Shuffling " + decompressedLength + " bytes (" + 
+                 compressedLength + " raw bytes) " + 
+@@ -1559,6 +1582,44 @@ class ReduceTask extends Task {
+         return mapOutput;
+       }
+       
++      private MapOutput shuffleToLink(MapOutputLocation mapOutputLoc,
++			InputStream input, Path filename, long mapOutputLength) 
++      throws IOException {
++    	// Find out a suitable location for the output on local-filesystem
++		Path localFilename =
++		  lDirAlloc.getLocalPathForWrite(filename.toUri().getPath(),
++				  mapOutputLength, conf);
++		LOG.debug("shuffleToDisk: local file = \"" + localFilename.toString()
++				+ " \"");
++		
++		MapOutput mapOutput = new MapOutput(mapOutputLoc.getTaskId(), 
++				mapOutputLoc.getTaskAttemptId(), conf,
++				localFileSys.makeQualified(localFilename), mapOutputLength);
++		
++		String query = mapOutputLoc.getOutputLocation().getQuery();
++		LOG.error("shuffleToDisk: query= \"" + query +"\"");
++		
++		String[] queries = query.split("&");
++		String maphost = mapOutputLoc.getHost();
++		String tmpDir = conf.get("mapred.job.local.dir");
++		String lnCmd = conf.get("hadoop.ln.cmd");
++		
++		String src = tmpDir + "/jobcache/"
++				+ queries[0].substring(queries[0].indexOf('=')+1)+"/"
++				+ queries[1].substring(queries[1].indexOf('=')+1)
++				+"/output/file.out";
++		String command = lnCmd + " " + src + " " + localFilename;
++		
++		try{
++			LOG.debug("shuffleToLink: Command used for hardlink " + command);
++			Runtime.getRuntime().exec(command).waitFor();
++		} catch (Exception e) {
++			System.out.println(e.toString());
++			e.printStackTrace();
++		}
++		return mapOutput;
++	}
++
+ 	private InputStream setupSecureConnection(MapOutputLocation mapOutputLoc, 
+           URLConnection connection) throws IOException {
+ 
+@@ -1574,6 +1635,7 @@ class ReduceTask extends Task {
+         
+         InputStream input = getInputStream(connection, shuffleConnectionTimeout,
+                                            shuffleReadTimeout); 
++        LOG.debug("lingkun: get inputStream from connect URL=" + connection.getURL().toString());
+         
+         // get the replyHash which is HMac of the encHash we sent to the server
+         String replyHash = connection.getHeaderField(
+@@ -1772,6 +1834,38 @@ class ReduceTask extends Task {
+         return mapOutput;
+       }
+       
++      /**
++       * lingkun: this function tries to use softlink to get rid of the original
++       * http get framework for get LingccFS files while using lingccfs.
++       * @param mapOutputLoc
++       * @param input
++       * @param filename
++       * @param mapOutputLength
++       * @return
++       * @throws IOException
++       */
++      private MapOutput shuffleToDiskLingccfs(MapOutputLocation mapOutputLoc,
++    		  InputStream input, Path filename,
++    		  long mapOutputLength) 
++    				  throws IOException {
++    	  Path localFilename = 
++    			  lDirAlloc.getLocalPathForWrite(filename.toUri().getPath(), 
++    					  mapOutputLength, conf);
++
++    	  LOG.debug("lingkun, shuffleToDisk  locate the mapoutput to path:" 
++    			  + localFilename);
++
++    	  MapOutput mapOutput = 
++    			  new MapOutput(mapOutputLoc.getTaskId(), mapOutputLoc.getTaskAttemptId(), 
++    					  conf, localFileSys.makeQualified(localFilename), 
++    					  mapOutputLength);
++    	  
++    	  return mapOutput;
++
++
++      }
++      
++      
+       private MapOutput shuffleToDisk(MapOutputLocation mapOutputLoc,
+                                       InputStream input,
+                                       Path filename,
+@@ -1782,6 +1876,9 @@ class ReduceTask extends Task {
+           lDirAlloc.getLocalPathForWrite(filename.toUri().getPath(), 
+                                          mapOutputLength, conf);
+         
++        LOG.debug("lingkun, shuffleToDisk  locate the mapoutput to path:" 
++        		+ localFilename);
++
+         MapOutput mapOutput = 
+           new MapOutput(mapOutputLoc.getTaskId(), mapOutputLoc.getTaskAttemptId(), 
+                         conf, localFileSys.makeQualified(localFilename), 
+diff --git a/src/mapred/org/apache/hadoop/mapred/TaskRunner.java b/src/mapred/org/apache/hadoop/mapred/TaskRunner.java
+index ca54508..1ba24f6 100644
+--- a/src/mapred/org/apache/hadoop/mapred/TaskRunner.java
++++ b/src/mapred/org/apache/hadoop/mapred/TaskRunner.java
+@@ -247,6 +247,8 @@ abstract class TaskRunner extends Thread {
+         setupCmds.add(sb.toString());
+       }
+       setupCmds.add(setup);
++      LOG.debug("JVM to stat: " + setupCmds.toString() + "; workdir = "
++    		  + workDir);
+       
+       launchJvmAndWait(setupCmds, vargs, stdout, stderr, logSize, workDir);
+       tracker.getTaskTrackerInstrumentation().reportTaskEnd(t.getTaskID());
+diff --git a/src/mapred/org/apache/hadoop/mapred/TaskTracker.java b/src/mapred/org/apache/hadoop/mapred/TaskTracker.java
+index 8575401..9674a4f 100644
+--- a/src/mapred/org/apache/hadoop/mapred/TaskTracker.java
++++ b/src/mapred/org/apache/hadoop/mapred/TaskTracker.java
+@@ -3867,6 +3867,9 @@ public class TaskTracker implements MRConstants, TaskUmbilicalProtocol,
+         fileCache.put(fileKey, mapOutputFileName);
+       }
+       
++      LOG.debug("lingkun: doGet, indexFileName="+ indexFileName
++    		  + ", mapOutputFileName="+mapOutputFileName);
++       
+ 
+         /**
+          * Read the index file to get the information about where
