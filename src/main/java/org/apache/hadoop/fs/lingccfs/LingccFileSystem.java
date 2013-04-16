@@ -35,48 +35,70 @@ import org.apache.hadoop.util.StringUtils;
 public class LingccFileSystem extends FileSystem {
 
 	private URI uri;
+	private URI LingccFSWriteRoot;
+	private URI HBaseRootDir;
 	private Path workingDir;
 	public static final Log LOG = LogFactory.getLog(LingccFileSystem.class);
 
 
 	public LingccFileSystem () {
-		// workingDir = new  Path(System.getProperty("user.dir")).makeQualified(this);
+		//workingDir = new  Path(System.getProperty("user.dir")).makeQualified(this);
 
 	}
-
-	/** Convert a path to a File. */
-	public File pathToFile(Path path) {
-		checkPath(path);
-		if (!path.isAbsolute()) {
-			path = new Path(getWorkingDirectory(), path);
-		}
-		LOG.debug("Convert Path to file, Path:"+path.toString() + ". File:" + path.toUri().getPath());
-		return new File(path.toUri().getPath());
-	}
-
 
 	@Override
 	public URI getUri() {
 		return uri;
 	}
-
+	
+	public Path getHomeDirectory() {
+		Path Home = makeQualified(new Path("/user/"+ System.getProperty("user.name")));
+		LOG.debug("Home Path=" + Home.toString());
+		return  Home;
+	}
 
 	public void initialize(URI uri, Configuration conf) throws IOException {
 		super.initialize(uri, conf);
-		this.uri = URI.create(uri.getScheme() + ":///");
-		this.workingDir = new  Path(System.getProperty("user.dir")).makeQualified(this);
 		setConf(conf);
+		
+	    //LOG.debug(StringUtils.stringifyException(new IOException("LingccFS Initialize")));
+
+		// lingkun: Do we need to use the fs.default.name for uri?
+	    if(conf.get("hbase.rootdir") != null) {
+	    	this.HBaseRootDir = URI.create(conf.get("hbase.rootdir"));
+	    } else {
+	    	this.HBaseRootDir = null;
+	    }
+	    
+	    if(conf.get("fs.default.name") != null) {
+	    	this.LingccFSWriteRoot = URI.create(conf.get("fs.default.name"));
+	    } else {
+	    	this.LingccFSWriteRoot = null;
+	    }
+	    
+	    if(this.HBaseRootDir == null && this.LingccFSWriteRoot == null) {
+	    	this.LingccFSWriteRoot = URI.create("lingccfs:///");
+	        LOG.warn("Init LingccFS without specifying Hbase root dir or LingccFS default uri"
+	        		+ "using the default root path: lingccfs:///");
+	    }
+	    
+		this.uri = URI.create(uri.getScheme()+":///");
+		this.workingDir = getHomeDirectory();
 		LOG.info("LingccFS Initialized, using LingccFS as the distributed file system");
-		LOG.debug("LingccFS initialized Done, origin_uri=" + uri + ",new_uri="+this.uri);
+		LOG.debug("LingccFS initialized Done, uri=" + getUri() 
+				+ ",workingDir="+ getWorkingDirectory()
+				+ ", LingccFSWriteRoot=" +  LingccFSWriteRoot
+				+ ", HBaseRootDir = " + HBaseRootDir);
 	}
 
-	public class LingccFSError extends Error {
-		LingccFSError(Throwable cause) {
-			super(cause);
-		}
+	static String execCommand(File f, String... cmd) throws IOException {
+		String[] args = new String[cmd.length + 1];
+		System.arraycopy(cmd, 0, args, 0, cmd.length);
+		args[cmd.length] = f.getCanonicalPath();
+		String output = Shell.execCommand(args);
+		return output;
 	}
-
-
+	
 	class TrackingFileInputStream extends FileInputStream {
 		public TrackingFileInputStream(File f) throws IOException {
 			super(f);
@@ -149,12 +171,11 @@ public class LingccFileSystem extends FileSystem {
 				}
 				return value;
 			} catch (IOException e) {                 // unexpected exception
-				throw new LingccFSError(e);                   // assume native fs error
+				throw new Error(e);                   // assume native fs error
 			}
 		}
 
 		public int read(byte[] b, int off, int len) throws IOException {
-			LOG.debug("LingccFSFileInputStream read. off="+off + ",len="+len);
 			try {
 				int value = fis.read(b, off, len);
 				if (value > 0) {
@@ -162,19 +183,17 @@ public class LingccFileSystem extends FileSystem {
 				}
 				return value;
 			} catch (IOException e) {                 // unexpected exception
-				throw new LingccFSError(e);                   // assume native fs error
+				throw new Error(e);                   // assume native fs error
 			}
 		}
 
 		public int read(long position, byte[] b, int off, int len)
 				throws IOException {
-			LOG.debug("LingccFSFileInputStream read. position="+position+", off="
-				+ off + ",len="+len);
 			ByteBuffer bb = ByteBuffer.wrap(b, off, len);
 			try {
 				return fis.getChannel().read(bb, position);
 			} catch (IOException e) {
-				throw new LingccFSError(e);
+				throw new Error(e);
 			}
 		}
 
@@ -198,7 +217,7 @@ public class LingccFileSystem extends FileSystem {
 		}
 		LOG.debug("FSDataInputStream Open. Path:"+f.toString()
 				+". buffersize="+bufferSize);
-		
+
 		LOG.debug("LingccFS Open. Path:"+f.toString());
 		return new FSDataInputStream(new BufferedFSInputStream(
 				new LingccFSFileInputStream(f), bufferSize));
@@ -225,11 +244,10 @@ public class LingccFileSystem extends FileSystem {
 		public void close() throws IOException { fos.close(); }
 		public void flush() throws IOException { fos.flush(); }
 		public void write(byte[] b, int off, int len) throws IOException {
-			LOG.debug("LingccFSFileOutputStream write. off="+off+", len="+len);
 			try {
 				fos.write(b, off, len);
 			} catch (IOException e) {                // unexpected exception
-				throw new LingccFSError(e);                  // assume native fs error
+				throw new Error(e);                  // assume native fs error
 			}
 		}
 
@@ -238,7 +256,7 @@ public class LingccFileSystem extends FileSystem {
 			try {
 				fos.write(b);
 			} catch (IOException e) {              // unexpected exception
-				throw new LingccFSError(e);                // assume native fs error
+				throw new Error(e);                // assume native fs error
 			}
 		}
 
@@ -257,26 +275,61 @@ public class LingccFileSystem extends FileSystem {
 		return create(f, overwrite, true, bufferSize, replication, blockSize, progress);
 	}
 
+	
+	/**
+	 * Implement createNonRecursive for HBase HLog Writer 
+	 * {@inheritDoc} */
+	@Override
+	public FSDataOutputStream createNonRecursive(Path f, FsPermission permission,
+	    boolean overwrite, int bufferSize, short replication, long blockSize,
+	    Progressable progress) throws IOException {
+			FSDataOutputStream out = create(f,
+					overwrite, false, bufferSize, replication, blockSize, progress);
+			setPermission(f, permission);
+			return out;
+	  }
+	
+	
 	/**
 	 * Creates the specified directory hierarchy. Does not
 	 * treat existence as an error.
 	 */
 	public boolean mkdirs(Path f) throws IOException {
+		
 		LOG.debug("LingccFS mkdir. Dir Path="+f.toString());
-
-		Path parent = f.getParent();
+		boolean res = false;
+		
+		try {
+		Path parent = makeAbsolute(f).getParent();
 		File p2f = pathToFile(f);
-		return (parent == null || mkdirs(parent)) &&
-				(p2f.mkdir() || p2f.isDirectory());
+		res = (parent == null 
+				|| (exists(parent) && getFileStatus(parent).isDir())
+				||  mkdirs(parent))
+				&& ( p2f.isDirectory() || p2f.mkdir() 
+			  );
+		} catch (IOException e) {
+			throw new Error(e);
+		}
+		return res;
 	}
 
+	public boolean mkdirs(Path f, FsPermission permission) throws IOException {
+		LOG.debug("LingccFS make dir, Path="+f);
+		boolean b = mkdirs(f);
+		setPermission(f, permission);
+		return b;
+	}
 
-	private FSDataOutputStream create(Path f, boolean overwrite, 
+	private FSDataOutputStream create(Path fName, boolean overwrite, 
 			boolean createParent, int bufferSize,
 			short replication, long blockSize, Progressable progress)
 					throws IOException {
+		
+		LOG.debug("LingccFS FSDataOutputStream Create file. Path="+fName.toString());
+		
+		Path f = makeAbsolute(fName);
 
-		LOG.debug("LingccFS FSDataOutputStream Create file. Path="+f.toString());
+		
 
 		if (exists(f) && !overwrite) {
 			throw new IOException("File already exists:"+f);
@@ -370,14 +423,6 @@ public class LingccFileSystem extends FileSystem {
 		return results;	    
 	}
 
-	private Path makeAbsolute(Path f) {
-		if (f.isAbsolute()) {
-			return f;
-		} else {
-			return new Path(workingDir, f);
-		}
-	}
-
 	public void setWorkingDirectory(Path new_dir) {
 		LOG.debug("Set working Dir =" + new_dir);
 		workingDir = makeAbsolute(new_dir);
@@ -386,110 +431,6 @@ public class LingccFileSystem extends FileSystem {
 
 	public Path getWorkingDirectory() {
 		return workingDir;
-	}
-
-	public boolean mkdirs(Path f, FsPermission permission) throws IOException {
-		LOG.debug("LingccFS make dir, Path="+f);
-		boolean b = mkdirs(f);
-		setPermission(f, permission);
-		return b;
-	}
-
-
-
-	static class RawLingccFileStatus extends FileStatus {
-		/* We can add extra fields here. It breaks at least CopyFiles.FilePair().
-		 * We recognize if the information is already loaded by check if
-		 * onwer.equals("").
-		 */
-		private boolean isPermissionLoaded() {
-			return !super.getOwner().equals(""); 
-		}
-
-		RawLingccFileStatus(File f, long defaultBlockSize, FileSystem fs) {
-			super(f.length(), f.isDirectory(), 1, defaultBlockSize,
-					f.lastModified(), new Path(f.getPath()).makeQualified(fs));
-		}
-
-		@Override
-		public FsPermission getPermission() {
-			if (!isPermissionLoaded()) {
-				loadPermissionInfo();
-			}
-			return super.getPermission();
-		}
-
-		@Override
-		public String getOwner() {
-			if (!isPermissionLoaded()) {
-				loadPermissionInfo();
-			}
-			return super.getOwner();
-		}
-
-		@Override
-		public String getGroup() {
-			if (!isPermissionLoaded()) {
-				loadPermissionInfo();
-			}
-			return super.getGroup();
-		}
-
-		static String execCommand(File f, String... cmd) throws IOException {
-			String[] args = new String[cmd.length + 1];
-			System.arraycopy(cmd, 0, args, 0, cmd.length);
-			args[cmd.length] = f.getCanonicalPath();
-			String output = Shell.execCommand(args);
-			return output;
-		}
-
-		/// loads permissions, owner, and group from `ls -ld`
-		private void loadPermissionInfo() {
-			IOException e = null;
-			try {
-				StringTokenizer t = new StringTokenizer(
-						execCommand(new File(getPath().toUri().getRawPath()), 
-								Shell.getGET_PERMISSION_COMMAND()));
-				//expected format
-				//-rw-------    1 username groupname ...
-				String permission = t.nextToken();
-				if (permission.length() > 10) { //files with ACLs might have a '+'
-					permission = permission.substring(0, 10);
-				}
-				//lingkun debug
-				LOG.debug(" LingccFS Executed command:" + Shell.getGET_PERMISSION_COMMAND()
-						+ ", on directory:" + getPath().getName());
-
-				setPermission(FsPermission.valueOf(permission));
-				t.nextToken();
-				setOwner(t.nextToken());
-				setGroup(t.nextToken());
-			} catch (Shell.ExitCodeException ioe) {
-				if (ioe.getExitCode() != 1) {
-					e = ioe;
-				} else {
-					setPermission(null);
-					setOwner(null);
-					setGroup(null);
-				}
-			} catch (IOException ioe) {
-				e = ioe;
-			} finally {
-				if (e != null) {
-					throw new RuntimeException("Error while running command to get " +
-							"file permissions : " + 
-							StringUtils.stringifyException(e));
-				}
-			}
-		}
-
-		@Override
-		public void write(DataOutput out) throws IOException {
-			if (!isPermissionLoaded()) {
-				loadPermissionInfo();
-			}
-			super.write(out);
-		}
 	}
 
 	/** Return the number of bytes that large input files should be optimally
@@ -501,7 +442,9 @@ public class LingccFileSystem extends FileSystem {
 
 
 	public FileStatus getFileStatus(Path f) throws IOException {
+		LOG.debug("LingccFS getFileStatus f=" + f);
 		File path = pathToFile(f);
+		LOG.debug("LingccFS getFileStatus path=" + path + ", path.exists()=" + path.exists());
 		if (path.exists()) {
 			return new RawLingccFileStatus(pathToFile(f), getDefaultBlockSize(), this);
 		} else {
@@ -512,7 +455,7 @@ public class LingccFileSystem extends FileSystem {
 
 	public String getPathName(Path f) throws IOException {
 		checkPath(f);
-		String result = makeAbsolute(f).toUri().getPath();
+		String result = makeAbsolute(f).toUri().toString();
 
 		return result;
 	}
@@ -617,4 +560,205 @@ public class LingccFileSystem extends FileSystem {
 		FileUtil.copy(this, src, getLocal(getConf()), dst, delSrc, getConf());
 		LOG.debug("LingccFS Copy To Local File end.");
 	}
+
+
+	static class RawLingccFileStatus extends FileStatus {
+		/* We can add extra fields here. It breaks at least CopyFiles.FilePair().
+		 * We recognize if the information is already loaded by check if
+		 * onwer.equals("").
+		 */
+		private boolean isPermissionLoaded() {
+			return !super.getOwner().equals(""); 
+		}
+
+		RawLingccFileStatus(File f, long defaultBlockSize, FileSystem fs) {
+			super(f.length(), f.isDirectory(), 1, defaultBlockSize,
+					f.lastModified(), new Path(f.getPath()).makeQualified(fs));
+		}
+
+		@Override
+		public FsPermission getPermission() {
+			if (!isPermissionLoaded()) {
+				loadPermissionInfo();
+			}
+			return super.getPermission();
+		}
+
+		@Override
+		public String getOwner() {
+			if (!isPermissionLoaded()) {
+				loadPermissionInfo();
+			}
+			return super.getOwner();
+		}
+
+		@Override
+		public String getGroup() {
+			if (!isPermissionLoaded()) {
+				loadPermissionInfo();
+			}
+			return super.getGroup();
+		}
+
+
+
+		/// loads permissions, owner, and group from `ls -ld`
+		private void loadPermissionInfo() {
+			IOException e = null;
+			try {
+				StringTokenizer t = new StringTokenizer(
+						execCommand(new File(getPath().toUri().getRawPath()), 
+								Shell.getGET_PERMISSION_COMMAND()));
+				//expected format
+				//-rw-------    1 username groupname ...
+				String permission = t.nextToken();
+				if (permission.length() > 10) { //files with ACLs might have a '+'
+					permission = permission.substring(0, 10);
+				}
+				//lingkun debug
+				LOG.debug(" LingccFS Executed command:" + Shell.getGET_PERMISSION_COMMAND()
+						+ ", on directory:" + getPath().getName());
+
+				setPermission(FsPermission.valueOf(permission));
+				t.nextToken();
+				setOwner(t.nextToken());
+				setGroup(t.nextToken());
+			} catch (Shell.ExitCodeException ioe) {
+				if (ioe.getExitCode() != 1) {
+					e = ioe;
+				} else {
+					setPermission(null);
+					setOwner(null);
+					setGroup(null);
+				}
+			} catch (IOException ioe) {
+				e = ioe;
+			} finally {
+				if (e != null) {
+					throw new RuntimeException("Error while running command to get " +
+							"file permissions : " + 
+							StringUtils.stringifyException(e));
+				}
+			}
+		}
+
+		@Override
+		public void write(DataOutput out) throws IOException {
+			if (!isPermissionLoaded()) {
+				loadPermissionInfo();
+			}
+			super.write(out);
+		}
+	}	
+
+	/**
+	 * Use the command chown to set owner.
+	 */
+	@Override
+	public void setOwner(Path p, String username, String groupname
+			) throws IOException {
+		LOG.debug("LingccFS setOwner. Path="+ p + ", username="+ username
+				+ ", groupname="+groupname);
+		if (username == null && groupname == null) {
+			throw new IOException("username == null && groupname == null");
+		}
+
+		if (username == null) {
+			execCommand(pathToFile(p), Shell.SET_GROUP_COMMAND, groupname); 
+		} else {
+			//OWNER[:[GROUP]]
+			String s = username + (groupname == null? "": ":" + groupname);
+			execCommand(pathToFile(p), Shell.SET_OWNER_COMMAND, s);
+		}
+	}
+
+
+	
+	/**
+	 * Use the command chmod to set permission.
+	 */
+	@Override
+	public void setPermission(Path p, FsPermission permission
+			) throws IOException {
+		LOG.debug("LingccFS setPermission. Path="+p +", permission="
+				+ permission.toString());
+		FileUtil.setPermission(pathToFile(p), permission);
+	}
+	
+	/**
+	 * Used to expand relative, absolute path, absolute path with scheme to
+	 * full LingccFS File Path, this is the absolute local path with lingccfs scheme.
+	 * 
+	 * It is called by makeQualified, pathToFile and make Absolute.
+	 * @param path
+	 * @return
+	 */
+	private Path expandToFullLingccPath(Path path) {
+		Path fsPath = path;
+		String pathStr = path.toString();
+		long HBaseRootDirLen = (HBaseRootDir== null) ? 0:HBaseRootDir.toString().length();
+	    if (!path.isAbsolute()) {
+	   	  LOG.debug("add prefix:" + getWorkingDirectory() + " to existing path");	
+	      fsPath = new Path(getWorkingDirectory().toUri().getPath(), path);
+	    } else if( !path.toString().startsWith("lingccfs")) {
+	    	// scheme without lingccfs, but seems absolute
+	    	 if((HBaseRootDirLen > 0) 
+	    			 && (HBaseRootDir.toString().length() > 0) 
+	    			 && (!(HBaseRootDir.getPath().toString().startsWith(pathStr)
+	    				  ||pathStr.startsWith(HBaseRootDir.getPath().toString())))
+	    			 && (!(pathStr.startsWith(LingccFSWriteRoot.getPath().toString())))){
+	    		 LOG.debug("add prefix:" + HBaseRootDir + " to existing path");
+	    		fsPath = new Path(HBaseRootDir.getPath() + path);
+	    	 } else if(!(pathStr.startsWith(LingccFSWriteRoot.getPath().toString())
+	    			     || LingccFSWriteRoot.getPath().toString().startsWith(pathStr))) {
+	    		 LOG.debug("add prefix:" + LingccFSWriteRoot + " to existing path");
+			  	fsPath = new Path(LingccFSWriteRoot.getPath() + path);
+	         } else {
+	        	 LOG.debug("No prefix added: just keep the original path");
+	        	fsPath = path;
+	         }
+	    } else{
+	    	LOG.debug("No prefix added:start with lingccfs, only take the path of the URI.");
+	    	fsPath = new Path(path.toUri().getPath());
+	    }
+	    LOG.debug("expand path:" + path.toString() +", to full:" + fsPath.toString()
+	    		+", HBaseRootDir=" + ((HBaseRootDir== null) ? null:HBaseRootDir.getPath().toString())
+	    		+ ", LingccFSWriteRoot=" + LingccFSWriteRoot.getPath().toString());
+		return fsPath;
+	}
+	
+	
+	/**
+	 *  Make the original /XXX path to lingccfs:///${fs.default.name}/XXX
+	 */
+	  @Override
+	  public Path makeQualified(Path path) {
+	    // make sure that we just get the 
+	    // path component 
+	    Path fsPath = expandToFullLingccPath(path);
+	    URI tmpURI = fsPath.toUri();
+	    //change this to Local uri 
+	    fsPath = new Path(getUri().getScheme(), tmpURI.getPath());
+	    LOG.debug("makeQualified of Path:" + path.toString() 
+	    		+ ", return:" + fsPath.toString());
+	    return fsPath;
+	  }
+
+
+		/** Convert a path to a File. */
+		public File pathToFile(Path path) {
+			checkPath(path);
+			Path fsPath = expandToFullLingccPath(path);
+			LOG.debug("Convert Path to file, Path:"+path.toString() + ". File:"
+					+ fsPath.toString());
+			return new File(fsPath.toString());
+		}
+
+		private Path makeAbsolute(Path f) {
+			Path fsPath = expandToFullLingccPath(f);
+			LOG.debug("MakeAbsolute, in Path f=" + f.toString() 
+					+", return Path=" + fsPath.toString());
+			return fsPath;
+		}
+
 }
