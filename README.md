@@ -6,7 +6,7 @@ INTRODUCTION
 
 This document describes how to use LingccFS as a backing store with Hadoop.
 
-Author: Ling Kun <lkun.lingcc@qq.com>
+Author: Ling Kun <lkun.erlv@gmail.com>
 
 REQUIREMENTS
 ------------
